@@ -1,0 +1,272 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ALB Request Count",
+        "region": "${region}",
+        "stat": "Sum",
+        "period": 300,
+        "metrics": [
+          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${alb_arn_suffix}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ALB Target Response Time",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "${alb_arn_suffix}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Healthy vs Unhealthy Targets",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/ApplicationELB", "HealthyHostCount", "TargetGroup", "${target_group_arn_suffix}", "LoadBalancer", "${alb_arn_suffix}", { "color": "#2ca02c", "label": "Healthy" }],
+          [".", "UnHealthyHostCount", ".", ".", ".", ".", { "color": "#d62728", "label": "Unhealthy" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ALB HTTP Response Codes",
+        "region": "${region}",
+        "stat": "Sum",
+        "period": 300,
+        "metrics": [
+          ["AWS/ApplicationELB", "HTTPCode_Target_2XX_Count", "LoadBalancer", "${alb_arn_suffix}", { "color": "#2ca02c", "label": "2xx" }],
+          [".", "HTTPCode_Target_4XX_Count", ".", ".", { "color": "#ff7f0e", "label": "4xx" }],
+          [".", "HTTPCode_Target_5XX_Count", ".", ".", { "color": "#d62728", "label": "5xx" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ASG CPU Utilization",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "${asg_name}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        "annotations": {
+          "horizontal": [
+            { "value": 80, "label": "High CPU Warning", "color": "#ff7f0e" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "ASG Instance Count",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/AutoScaling", "GroupDesiredCapacity", "AutoScalingGroupName", "${asg_name}", { "label": "Desired" }],
+          [".", "GroupInServiceInstances", ".", ".", { "label": "InService" }],
+          [".", "GroupMinSize", ".", ".", { "label": "Min" }],
+          [".", "GroupMaxSize", ".", ".", { "label": "Max" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Network Traffic (In/Out)",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/EC2", "NetworkIn", "AutoScalingGroupName", "${asg_name}", { "label": "Network In" }],
+          [".", "NetworkOut", ".", ".", { "label": "Network Out" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Disk Read/Write Bytes",
+        "region": "${region}",
+        "stat": "Sum",
+        "period": 300,
+        "metrics": [
+          ["AWS/EC2", "DiskReadBytes", "AutoScalingGroupName", "${asg_name}", { "label": "Read" }],
+          [".", "DiskWriteBytes", ".", ".", { "label": "Write" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Aurora CPU Utilization",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/RDS", "CPUUtilization", "DBClusterIdentifier", "${db_cluster_id}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        "annotations": {
+          "horizontal": [
+            { "value": 80, "label": "High CPU Warning", "color": "#ff7f0e" }
+          ]
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Database Connections",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/RDS", "DatabaseConnections", "DBClusterIdentifier", "${db_cluster_id}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Aurora Read/Write Latency",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/RDS", "ReadLatency", "DBClusterIdentifier", "${db_cluster_id}", { "label": "Read Latency" }],
+          [".", "WriteLatency", ".", ".", { "label": "Write Latency" }]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Aurora Freeable Memory",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/RDS", "FreeableMemory", "DBClusterIdentifier", "${db_cluster_id}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Aurora Free Storage Space",
+        "region": "${region}",
+        "stat": "Average",
+        "period": 300,
+        "metrics": [
+          ["AWS/RDS", "FreeLocalStorage", "DBClusterIdentifier", "${db_cluster_id}"]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    }
+  ]
+}

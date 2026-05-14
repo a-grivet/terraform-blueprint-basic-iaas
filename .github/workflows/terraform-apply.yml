@@ -1,0 +1,423 @@
+# ============================================================================
+# TERRAFORM APPLY WORKFLOW
+# ============================================================================
+# This workflow applies a previously generated Terraform plan to actually
+# create, modify, or destroy AWS infrastructure. It's the "execution" step
+# that makes real changes to your cloud environment.
+#
+# IMPORTANT SAFETY FEATURES:
+# - Manual trigger only (cannot run automatically)
+# - Requires explicit "APPLY" confirmation
+# - Uses pre-generated plan (no surprises)
+# - Production requires additional approval
+# - Plan must be less than 24 hours old
+#
+# WHEN IT RUNS:
+# - ONLY when manually triggered from GitHub Actions UI
+# - NEVER runs automatically (for safety)
+#
+# WHAT IT DOES:
+# 1. Validates that user typed "APPLY" to confirm (safety check)
+# 2. Downloads the plan artifact from the Plan workflow
+# 3. Authenticates to the correct AWS account
+# 4. Applies the plan to create/modify/destroy infrastructure
+# 5. Reports success or failure
+#
+# PREREQUISITES:
+# - You must have run the "Terraform Plan" workflow first
+# - You need the Plan Run ID from that workflow
+# - The plan must be less than 24 hours old
+# ============================================================================
+
+name: Terraform Apply
+
+# ============================================================================
+# WORKFLOW TRIGGERS (WHEN THIS WORKFLOW RUNS)
+# ============================================================================
+on:
+  # MANUAL TRIGGER ONLY
+  # This workflow can ONLY be triggered manually from GitHub UI
+  # This is a safety feature - we never want infrastructure changes to happen automatically
+  workflow_dispatch:
+    inputs:
+      # INPUT 1: Which environment to apply changes to
+      environment:
+        description: 'Environment to apply (dev or prod)'  # Help text shown in UI
+        required: true                                      # User MUST provide this
+        type: choice                                        # Dropdown selection
+        options:
+          - dev      # Option 1: Development environment
+          - prod     # Option 2: Production environment
+      
+      # INPUT 2: The Run ID from the Plan workflow
+      # This tells us which plan artifact to download and apply
+      # You can find this in the URL of the Plan workflow run
+      # Example: https://github.com/owner/repo/actions/runs/12345678 -> Run ID is 12345678
+      plan_run_id:
+        description: 'Plan Run ID from the Plan workflow'  # Help text
+        required: true                                      # MUST provide this
+        type: string                                        # Free text input (numbers)
+      
+      # INPUT 3: Confirmation word - user must type "APPLY"
+      # This is a safety mechanism to prevent accidental infrastructure changes
+      # Similar to typing "yes" when deleting important files
+      confirmation:
+        description: 'Type APPLY to confirm'               # Help text
+        required: true                                      # MUST provide this
+        type: string                                        # Free text input
+
+# ============================================================================
+# PERMISSIONS
+# ============================================================================
+# These define what this workflow is allowed to do in GitHub and AWS
+permissions:
+  id-token: write   # Required to authenticate with AWS using OIDC (secure, no stored passwords)
+  contents: read    # Allows reading the repository code
+  actions: read     # Allows downloading artifacts from other workflow runs
+
+# ============================================================================
+# JOBS
+# ============================================================================
+# This workflow has 2 jobs that run sequentially
+
+jobs:
+  # ==========================================================================
+  # JOB 1: VALIDATE INPUTS
+  # ==========================================================================
+  # This job checks that all user inputs are correct before doing anything
+  # It's a safety gate to catch mistakes early
+  
+  validate:
+    # Human-readable name shown in GitHub Actions UI
+    name: Validate Inputs
+    
+    # Run on Your Organization self-hosted Linux runner (not GitHub's public runners)
+    runs-on: ubuntu-latest
+    
+    # OUTPUTS: Variables that this job exports for other jobs to use
+    outputs:
+      aws_role: ${{ steps.set-config.outputs.aws_role }}        # AWS IAM role to assume
+      working_dir: ${{ steps.set-config.outputs.working_dir }}  # Terraform directory path
+    
+    steps:
+      # ------------------------------------------------------------------------
+      # STEP: Check if user typed "APPLY" correctly
+      # ------------------------------------------------------------------------
+      - name: Validate Confirmation
+        run: |
+          # Check if the confirmation input is exactly "APPLY" (case-sensitive)
+          # This prevents accidental executions
+          if [ "${{ inputs.confirmation }}" != "APPLY" ]; then
+            echo "❌ You must type APPLY to confirm"
+            exit 1  # Exit with error code 1 = stops the entire workflow
+          fi
+          
+          # If we reach here, confirmation is correct
+          echo "✅ Confirmation validated"
+      
+      # ------------------------------------------------------------------------
+      # STEP: Set configuration based on environment
+      # ------------------------------------------------------------------------
+      - name: Set Environment Configuration
+        # Give this step an ID so other steps/jobs can reference its outputs
+        id: set-config
+        run: |
+          # Store the environment input in a variable for easier use
+          ENV="${{ inputs.environment }}"
+          
+          # CONDITIONAL: Set different AWS roles and directories based on environment
+          if [ "$ENV" == "dev" ]; then
+            # DEV ENVIRONMENT CONFIGURATION
+            # Use repository variable for dev AWS role ARN
+            # ${{ vars.DEV_DEPLOY_AWS_ROLE_TO_ASSUME }} is set in GitHub repo settings
+            echo "aws_role=${{ vars.DEV_DEPLOY_AWS_ROLE_TO_ASSUME }}" >> $GITHUB_OUTPUT
+            
+            # Set working directory to dev environment folder
+            echo "working_dir=infrastructure/environments/dev" >> $GITHUB_OUTPUT
+          else
+            # PROD ENVIRONMENT CONFIGURATION
+            # Use repository variable for prod AWS role ARN
+            echo "aws_role=${{ vars.PROD_DEPLOY_AWS_ROLE_TO_ASSUME }}" >> $GITHUB_OUTPUT
+            
+            # Set working directory to prod environment folder
+            echo "working_dir=infrastructure/environments/prod" >> $GITHUB_OUTPUT
+          fi
+  
+  # ==========================================================================
+  # JOB 2: APPLY INFRASTRUCTURE
+  # ==========================================================================
+  # This job performs the actual infrastructure deployment
+  
+  apply:
+    # Dynamic name that includes the environment (e.g., "Apply dev Infrastructure")
+    name: Apply ${{ inputs.environment }} Infrastructure
+    
+    # Run on Your Organization self-hosted Linux runner
+    runs-on: ubuntu-latest
+    
+    # DEPENDENCY: Wait for 'validate' job to complete successfully first
+    # This ensures inputs are validated before we start applying changes
+    needs: validate
+    
+    # CONDITIONAL ENVIRONMENT: For PROD, require manual approval before running
+    # The 'production' environment should be configured in GitHub with protection rules
+    # For DEV, this evaluates to empty string (no approval needed)
+    # This adds an extra safety layer for production deployments
+    environment: ${{ inputs.environment == 'prod' && 'production' || '' }}
+    
+    # ENVIRONMENT VARIABLES: Available to all steps in this job
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}              # 'dev' or 'prod'
+      AWS_REGION: eu-west-1                               # AWS region for all resources
+      FEATURE_NAME: blueprint-demo                         # Prefix for naming resources
+      WORKING_DIR: ${{ needs.validate.outputs.working_dir }}  # Terraform directory from validate job
+    
+    steps:
+      # ======================================================================
+      # SETUP SECTION: Install and configure all necessary tools
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Download the repository code
+      # ------------------------------------------------------------------------
+      - name: Checkout Repository
+        # This is a pre-built action from GitHub
+        # It clones your repository code to the runner machine
+        # We need the Terraform configuration files to apply the plan
+        uses: actions/checkout@v4  # @v4 is the version of this action
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install Node.js (JavaScript runtime)
+      # ------------------------------------------------------------------------
+      - name: Setup Node.js
+        # Node.js is needed for some GitHub Actions (like github-script)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'  # Install version 18.x of Node.js
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install Terraform CLI tool
+      # ------------------------------------------------------------------------
+      - name: Setup Terraform
+        # This action installs the Terraform command-line tool
+        # Must use same version as Plan workflow for compatibility
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2  # Required for S3 native state locking
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install AWS CLI tool
+      # ------------------------------------------------------------------------
+      - name: Setup AWS CLI
+        run: |
+          # Download AWS CLI v2 installer for Linux (64-bit)
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          
+          # Extract the zip file (-q = quiet mode, no verbose output)
+          unzip -q awscliv2.zip
+          
+          # Run the installer (sudo = run as administrator)
+          sudo ./aws/install
+          
+          # Verify installation by showing version
+          aws --version
+
+      # ------------------------------------------------------------------------
+      # STEP: Configure SSH access for private Terraform module repository
+      # ------------------------------------------------------------------------
+      - name: Setup SSH for Private Module Access
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${{ secrets.TERRAFORM_MODULES_SECRET_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+      
+      # ======================================================================
+      # AWS AUTHENTICATION SECTION: Login to AWS account
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Authenticate to AWS using OIDC (secure method, no stored passwords)
+      # ------------------------------------------------------------------------
+      - name: Configure AWS Credentials
+        # This action uses OpenID Connect to assume an AWS IAM role
+        # It's more secure than storing AWS access keys as secrets
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # The AWS IAM role to assume (from validate job output)
+          role-to-assume: ${{ needs.validate.outputs.aws_role }}
+          
+          # Unique name for this session (helps with AWS CloudTrail logging)
+          # Format: github-apply-{env}-{unique-run-id}
+          role-session-name: github-apply-${{ env.ENVIRONMENT }}-${{ github.run_id }}
+          
+          # AWS region to use for API calls
+          aws-region: ${{ env.AWS_REGION }}
+          
+          # How long the credentials are valid (3600 seconds = 1 hour)
+          # Should be enough time to complete the apply operation
+          role-duration-seconds: 3600
+      
+      # ------------------------------------------------------------------------
+      # STEP: Verify we're logged into the correct AWS account
+      # ------------------------------------------------------------------------
+      - name: Verify AWS Account
+        run: |
+          # Get the AWS account ID we're currently authenticated to
+          # 'sts get-caller-identity' returns info about current AWS credentials
+          CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          
+          # Display account information for verification in logs
+          # This helps catch any authentication mistakes before applying changes
+          echo "=========================================="
+          echo "Authenticated to AWS Account: $CURRENT_ACCOUNT"
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "=========================================="
+      
+      # ======================================================================
+      # DOWNLOAD PLAN SECTION: Retrieve the plan created by Plan workflow
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Download the plan artifact from the Plan workflow run
+      # ------------------------------------------------------------------------
+      - name: Download Plan Artifact
+        # This action downloads artifacts (files) from another workflow run
+        uses: actions/download-artifact@v4
+        with:
+          # ARTIFACT NAME: Must match the name used when uploading in Plan workflow
+          # Format: terraform-plan-{env}-{run-id}
+          name: terraform-plan-${{ env.ENVIRONMENT }}-${{ inputs.plan_run_id }}
+          
+          # AUTHENTICATION: Token to access GitHub API
+          # ${{ secrets.GITHUB_TOKEN }} is automatically provided by GitHub
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # RUN ID: Which workflow run to download the artifact from
+          # This comes from the user input (plan_run_id)
+          run-id: ${{ inputs.plan_run_id }}
+          
+          # DESTINATION: Where to save the downloaded files
+          # We save them to the Terraform working directory
+          path: ${{ env.WORKING_DIR }}
+      
+      # ------------------------------------------------------------------------
+      # STEP: Verify that plan files were downloaded successfully
+      # ------------------------------------------------------------------------
+      - name: Verify Plan File
+        # Run commands in the Terraform working directory
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          # Check if the plan file exists
+          # -f checks if file exists and is a regular file (not a directory)
+          if [ ! -f "tfplan" ]; then
+            echo "❌ Plan file not found"
+            echo "This could mean:"
+            echo "  - Wrong plan_run_id provided"
+            echo "  - Plan artifact expired (older than 24 hours)"
+            echo "  - Plan was never created successfully"
+            exit 1  # Exit with error = stop the workflow
+          fi
+          
+          # If we reach here, plan file exists
+          echo "✅ Plan files verified"
+      
+      # ======================================================================
+      # TERRAFORM APPLY SECTION: Apply the plan to create infrastructure
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Initialize Terraform with remote backend
+      # ------------------------------------------------------------------------
+      - name: Terraform Init
+        # Run commands in the Terraform working directory
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          # Get AWS account ID for building backend bucket name
+          CURRENT_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          
+          # Build backend S3 bucket name (same as Plan workflow)
+          # Format: {feature-name}-terraform-backend-{region}-{account-id}
+          BUCKET_NAME="${FEATURE_NAME}-terraform-backend-${AWS_REGION}-${CURRENT_ACCOUNT_ID}"
+          
+          # CREATE BACKEND CONFIGURATION FILE
+          # This tells Terraform where its state file is stored
+          # 'cat > file << EOF' is a "here document" - writes multi-line text to file
+          cat > backend.tfbackend << BACKEND_CONFIG_EOF
+          bucket         = "${BUCKET_NAME}"                    # S3 bucket name
+          key            = "terraform.tfstate"                 # Object key (filename in S3)
+          region         = "${AWS_REGION}"                     # AWS region
+          encrypt        = true                                # Enable encryption at rest
+          use_lockfile   = true                                # Native S3 lockfile for state locking
+          BACKEND_CONFIG_EOF
+          
+          # INITIALIZE TERRAFORM
+          # This downloads provider plugins and configures the backend
+          # -backend-config: load backend settings from our file
+          # -input=false: don't prompt for input (fail if something is missing)
+          terraform init -backend-config=backend.tfbackend -input=false
+          
+          # CLEANUP: Remove backend config file (contains sensitive info)
+          rm -f backend.tfbackend
+      
+      # ------------------------------------------------------------------------
+      # STEP: Apply the Terraform plan (ACTUALLY MAKE CHANGES)
+      # ------------------------------------------------------------------------
+      - name: Terraform Apply
+        # Run commands in the Terraform working directory
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "=========================================="
+          echo "Applying ${{ env.ENVIRONMENT }} Infrastructure"
+          echo "=========================================="
+          
+          # APPLY THE PLAN
+          # This command executes the plan and makes real changes to AWS
+          # -input=false: don't prompt for input (we already have the plan)
+          # tfplan: the plan file we downloaded earlier
+          #
+          # IMPORTANT: This is the point of no return - infrastructure will be changed
+          # The plan file contains the exact changes to make
+          terraform apply -input=false tfplan
+          
+          echo "✅ Apply completed successfully"
+      
+      # ======================================================================
+      # SUMMARY SECTION: Report the deployment result
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Display deployment summary
+      # ------------------------------------------------------------------------
+      - name: Deployment Summary
+        # CONDITIONAL: Run this step always, even if previous steps failed
+        # 'always()' means run regardless of success/failure
+        # This ensures we always get a summary, even for failed deployments
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "Deployment Summary"
+          echo "=========================================="
+          
+          # ${{ job.status }} contains the current job status
+          # Possible values: 'success', 'failure', 'cancelled'
+          echo "Status: ${{ job.status }}"
+          
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          
+          # ${{ github.actor }} is the GitHub username who triggered this workflow
+          echo "Applied by: ${{ github.actor }}"
+          
+          # Display current UTC timestamp
+          echo "Applied at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          
+          echo "=========================================="

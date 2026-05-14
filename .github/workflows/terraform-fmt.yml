@@ -1,0 +1,356 @@
+# ============================================================================
+# TERRAFORM FORMAT AUTO-FIX WORKFLOW
+# ============================================================================
+# This workflow automatically formats all Terraform code files (.tf) to follow
+# consistent style guidelines. It's like an auto-formatter for code (similar
+# to Prettier for JavaScript or Black for Python).
+#
+# WHAT IS TERRAFORM FMT?
+# 'terraform fmt' is Terraform's built-in code formatter that ensures:
+# - Consistent indentation (2 spaces)
+# - Proper alignment of = signs in blocks
+# - Correct spacing and line breaks
+# - Standardized formatting across the entire codebase
+#
+# WHY AUTO-FORMAT?
+# - Prevents debates about code style ("tabs vs spaces")
+# - Makes code reviews focus on logic, not formatting
+# - Ensures consistency across all team members
+# - Makes code easier to read and maintain
+# - Reduces merge conflicts caused by formatting differences
+#
+# WHEN IT RUNS:
+# - ONLY when manually triggered from GitHub Actions UI
+# - NEVER runs automatically (you control when to format)
+#
+# WHAT IT DOES:
+# 1. Downloads all repository code
+# 2. Runs 'terraform fmt -recursive' on all .tf files
+# 3. Checks if any files were changed
+# 4. If changes exist: commits and pushes them automatically
+# 5. If no changes: does nothing (code was already formatted)
+#
+# TYPICAL USE CASES:
+# - After multiple developers have contributed code
+# - Before creating a Pull Request to ensure clean formatting
+# - Periodically to maintain code quality
+# - After importing/copying code from external sources
+#
+# SAFETY:
+# - This workflow WRITES to your repository (commits changes)
+# - Only affects formatting, NOT logic
+# - All changes are in Git history (can be reverted if needed)
+# ============================================================================
+
+name: Terraform Format Auto-fix (Manual)
+
+# CUSTOM RUN NAME: Shown in GitHub Actions UI
+# Instead of just showing the workflow name, this displays a more
+# descriptive name for each run: "Auto-format Terraform code"
+run-name: Auto-format Terraform code
+
+# ============================================================================
+# WORKFLOW TRIGGERS (WHEN THIS WORKFLOW RUNS)
+# ============================================================================
+on:
+  # MANUAL TRIGGER ONLY
+  # This workflow can ONLY be triggered manually from GitHub Actions UI
+  # 
+  # WHY MANUAL ONLY?
+  # - Formatting changes create commits
+  # - We don't want automatic commits on every push (could create loops)
+  # - Gives developers control over when to apply formatting
+  # - Prevents surprise commits during active development
+  #
+  # HOW TO TRIGGER:
+  # 1. Go to GitHub repository > Actions tab
+  # 2. Click "Terraform Format Auto-fix (Manual)" workflow
+  # 3. Click "Run workflow" button
+  # 4. Select branch and click "Run workflow"
+  workflow_dispatch: {} # Empty braces = no input parameters needed
+
+# ============================================================================
+# PERMISSIONS
+# ============================================================================
+# These define what this workflow is allowed to do
+permissions:
+  # WRITE ACCESS TO REPOSITORY
+  # This workflow needs permission to:
+  # 1. Read the code (to format it)
+  # 2. Write commits (to save formatted code)
+  # 3. Push commits (to update the repository)
+  #
+  # Without this permission, the workflow cannot push the formatted code back
+  contents: write # Required to commit and push formatting changes
+
+# ============================================================================
+# JOBS
+# ============================================================================
+# This workflow has a single job that formats all Terraform code
+
+jobs:
+  # ==========================================================================
+  # JOB: FORMAT TERRAFORM CODE
+  # ==========================================================================
+  # This job applies Terraform's standard formatting to all .tf files
+  
+  format:
+    # Human-readable name shown in GitHub Actions UI
+    name: Format Terraform Code
+    
+    # Run on Your Organization self-hosted Linux runner (not GitHub's public runners)
+    runs-on: ubuntu-latest # Your Organization runner
+    
+    steps:
+      # ======================================================================
+      # STEP 1: Download repository code
+      # ======================================================================
+      - name: Checkout Repository
+        # This is a pre-built action from GitHub
+        # It clones your repository code to the runner machine
+        uses: actions/checkout@v4
+        with:
+          # AUTHENTICATION TOKEN: Required for pushing commits
+          # ${{ secrets.GITHUB_TOKEN }} is automatically provided by GitHub
+          # This token has permissions defined by the 'permissions' block above
+          #
+          # WHY WE NEED THIS:
+          # By default, checkout uses a token that can only READ
+          # We need a token that can WRITE (push commits)
+          # GITHUB_TOKEN is automatically generated for each workflow run
+          # It expires after the workflow completes (secure)
+          token: ${{ secrets.GITHUB_TOKEN }} # Default token to allow pushing commits (automatically generated by GitHub)
+      
+      # ======================================================================
+      # STEP 2: Install Node.js (JavaScript runtime)
+      # ======================================================================
+      - name: Setup Node.js
+        # Node.js is needed for some GitHub Actions and tools
+        # Even though Terraform doesn't use Node.js, some actions do
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'  # Required for some tools
+      
+      # ======================================================================
+      # STEP 3: Install Terraform CLI tool
+      # ======================================================================
+      - name: Setup Terraform
+        # This action installs the Terraform command-line tool
+        # We need this to use the 'terraform fmt' command
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # TERRAFORM VERSION: Must match other workflows for consistency
+          # Using the same version ensures formatting is consistent across
+          # Plan, Apply, and Format workflows
+          terraform_version: 1.9.5  # Ensures consistent Terraform version
+      
+      # ======================================================================
+      # STEP 4: Format all Terraform files
+      # ======================================================================
+      - name: Format Terraform Files
+        run: |
+          echo "Formatting all Terraform files..."
+          
+          # RUN TERRAFORM FMT
+          # -recursive flag means:
+          # - Search ALL subdirectories for .tf files
+          # - Format every .tf file found
+          # - Process the entire repository tree
+          #
+          # WHAT IT DOES:
+          # - Rewrites .tf files with proper formatting
+          # - Fixes indentation (uses 2 spaces)
+          # - Aligns = signs in resource blocks
+          # - Adds/removes spaces for consistency
+          # - Organizes multi-line blocks properly
+          #
+          # WHAT IT DOESN'T DO:
+          # - Doesn't change logic or functionality
+          # - Doesn't modify variable names or values
+          # - Doesn't validate syntax (only formats)
+          # - Doesn't optimize or refactor code
+          terraform fmt -recursive
+        # Automatically reformats .tf files recursively using Terraform's built-in formatter
+      
+      # ======================================================================
+      # STEP 5: Check if any files were changed by formatting
+      # ======================================================================
+      - name: Check for Changes
+        # Give this step an ID so later steps can reference its outputs
+        id: check
+        run: |
+          # CHECK GIT STATUS
+          # 'git status -s' shows short format of changed files
+          # -n tests if output is NOT empty (files were changed)
+          if [[ -n $(git status -s) ]]; then
+            # FILES WERE CHANGED: Set output to 'true'
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "✅ Formatting changes detected - will commit and push"
+          else
+            # NO FILES WERE CHANGED: Set output to 'false'
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "✨ No formatting changes needed - code is already properly formatted"
+          fi
+        # Determines whether any files were modified by terraform fmt
+        #
+        # WHY THIS STEP?
+        # - We only want to commit if files actually changed
+        # - If code is already formatted, no need to create an empty commit
+        # - Saves unnecessary commits in Git history
+        # - Prevents pushing if nothing changed
+      
+      # ======================================================================
+      # STEP 6: Commit and push formatted code (only if changes exist)
+      # ======================================================================
+      - name: Commit and Push Changes
+        # CONDITIONAL: Only run if previous step detected changes
+        # This prevents creating commits when no formatting was needed
+        if: steps.check.outputs.changes == 'true'
+        run: |
+          # CONFIGURE GIT USER
+          # Git needs to know who is making the commit
+          # We use the GitHub Actions bot identity
+          #
+          # --local: Only set for this repository (not global)
+          # 
+          # EMAIL: Special GitHub Actions bot email
+          # This identifies commits as coming from automation, not a human
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # NAME: Bot name shown in Git history
+          # [bot] suffix makes it clear this is automated
+          git config --local user.name "github-actions[bot]"
+          
+          # STAGE ALL CHANGES
+          # 'git add -A' stages all modified files
+          # -A means:
+          # - Add modified files
+          # - Add new files
+          # - Remove deleted files
+          # This ensures all formatting changes are included
+          git add -A
+          
+          # CREATE COMMIT
+          # The commit message follows conventional commit format:
+          # "style:" prefix indicates this is a formatting change
+          # Clear message explains what was done
+          #
+          # WHY THIS MESSAGE FORMAT?
+          # - "style:" is a conventional commit type for formatting
+          # - Makes it easy to filter formatting commits in Git history
+          # - Clear what the commit does without opening files
+          git commit -m "style: auto-format terraform code with terraform fmt"
+          
+          # PUSH COMMIT TO REMOTE
+          # Pushes the commit to GitHub repository
+          # Uses current branch (whichever branch the workflow was run on)
+          #
+          # WHAT HAPPENS AFTER PUSH:
+          # - Commit appears in Git history
+          # - Branch is updated with formatted code
+          # - Other developers will get these changes on next pull
+          # - SonarQube workflow may trigger if configured for all pushes
+          git push
+        # Automatically commits and pushes changes if formatting was applied
+
+# ============================================================================
+# UNDERSTANDING THE WORKFLOW EXECUTION
+# ============================================================================
+#
+# SCENARIO 1: Code needs formatting
+# 1. Developer manually triggers workflow
+# 2. Workflow checks out code
+# 3. 'terraform fmt -recursive' formats all .tf files
+# 4. Git detects changed files
+# 5. Workflow commits changes with message "style: auto-format terraform code"
+# 6. Commit is pushed to the branch
+# 7. Workflow completes with success (green checkmark)
+# Result: All Terraform code is now properly formatted
+#
+# SCENARIO 2: Code is already formatted
+# 1. Developer manually triggers workflow
+# 2. Workflow checks out code
+# 3. 'terraform fmt -recursive' runs but makes no changes
+# 4. Git detects no changed files
+# 5. Workflow skips commit step
+# 6. Workflow completes with success (green checkmark)
+# 7. Message: "No formatting changes needed"
+# Result: No commit created, code was already properly formatted
+#
+# ============================================================================
+# BEST PRACTICES
+# ============================================================================
+#
+# WHEN TO RUN THIS WORKFLOW:
+# ✅ Before creating a Pull Request (ensures clean code)
+# ✅ After merging multiple PRs (standardize formatting)
+# ✅ Periodically (weekly/monthly) to maintain consistency
+# ✅ After copying code from external sources
+# ✅ When onboarding new team members (standardize their code)
+#
+# WHEN NOT TO RUN:
+# ❌ During active development on a feature branch (let developers work)
+# ❌ Multiple times in a row (once is enough)
+# ❌ On branches with uncommitted local changes (commit your work first)
+#
+# ============================================================================
+# INTEGRATION WITH OTHER WORKFLOWS
+# ============================================================================
+#
+# This workflow complements your other workflows:
+#
+# - Terraform Plan/Apply: Formatted code is easier to review in plan outputs
+# - SonarQube: Consistent formatting improves code quality metrics
+# - Pull Requests: Reduces formatting debates in code reviews
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# Issue: "Permission denied when pushing"
+# Solution: Ensure 'contents: write' permission is set in workflow
+#           Check repository settings allow Actions to write
+#
+# Issue: "Nothing to commit"
+# Solution: This is normal! Code was already properly formatted
+#           No action needed
+#
+# Issue: "Merge conflict after formatting"
+# Solution: Pull latest changes, resolve conflicts, re-run workflow
+#
+# Issue: "Commit not appearing in my branch"
+# Solution: Ensure you ran workflow on the correct branch
+#           Check you selected your branch in workflow dispatch
+#
+# ============================================================================
+# TERRAFORM FMT RULES
+# ============================================================================
+#
+# The formatter applies these rules:
+# - Indentation: 2 spaces per level
+# - Alignment: = signs aligned in blocks
+# - Empty lines: Single empty line between blocks
+# - Trailing commas: Added where appropriate
+# - Comments: Preserved but may be reformatted
+# - Strings: Single quotes preferred when possible
+#
+# Example transformation:
+#
+# BEFORE:
+# resource "aws_instance" "example" {
+#   ami= "ami-12345"
+#     instance_type ="t2.micro"
+#   tags ={
+#     Name= "Example"
+#      }}
+#
+# AFTER:
+# resource "aws_instance" "example" {
+#   ami           = "ami-12345"
+#   instance_type = "t2.micro"
+#   tags = {
+#     Name = "Example"
+#   }
+# }
+#
+# ============================================================================

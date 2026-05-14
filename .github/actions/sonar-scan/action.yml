@@ -1,0 +1,217 @@
+name: SonarQube Scan
+description: "Composite action for SonarQube scan"
+
+inputs:
+  SONAR_TOKEN:
+    description: "Token used for Authentication with sonarqube"
+    required: true
+
+  GITHUB_TOKEN:
+    description: "Github token with 'pull-requests: write' permission"
+    default: ""
+  
+  host_url:
+    description: "SonarQube server url"
+    default: "http://sonarqube.intra.your-org.com"
+    required: false
+
+  project_key:
+    description: "SonarQube projectKey"
+    required: true
+
+  debug:
+    description: "Verbose output of sonarqube-scan-action"
+    default: "false"
+  
+  branch:
+    description: "Branch for SonarQube propertise"
+    required: true
+  
+  sources:
+    description: "Sonar scaner sources"
+    default: "."
+
+  tests:
+    description: "The initial analysis scope for test code in the project. Omit to skip"
+    default: "" 
+  
+  quality_gate:
+    description: "Check quality gate"
+    default: "true"
+
+  generic_coverage_report_paths:
+    description: "Generic coverage report paths (comma-separated). Omit to skip."
+    default: ""
+
+  python_coverage_report_paths:
+    description: "Python coverage report paths (comma-separated). Omit to skip."
+    default: ""
+  
+  sonar_root_cert: 
+    description: "Sonnar qube root crttificate for http://sonarqube.intra.your-org.com"
+    default: |
+      -----BEGIN CERTIFICATE-----
+      MIIGbDCCBVSgAwIBAgIMC4ROsi0IptAW3DqkMA0GCSqGSIb3DQEBCwUAMIGdMQsw
+      CQYDVQQGEwJGUjEOMAwGA1UEBxMFUGFyaXMxHDAaBgNVBAoTE1BTQSBQZXVnZW90
+      IENpdHJvZW4xFzAVBgNVBAsTDjAwMDIgMzE5MTg3MzA4MSAwHgYDVQQLExdDZXJ0
+      aWZpY2F0ZSBBdXRob3JpdGllczElMCMGA1UEAxMcUFNBIFBldWdlb3QgQ2l0cm9l
+      biBQcm9ncmFtczAeFw0yNTA1MjcxNjQ2MDhaFw0yNjAxMDExMjMxMDdaMHcxCzAJ
+      BgNVBAYTAkZSMQ4wDAYDVQQHDAVQYXJpczEcMBoGA1UECgwTUFNBIFBldWdlb3Qg
+      Q2l0cm9lbjERMA8GA1UECwwIUHJvZ3JhbXMxJzAlBgNVBAMMHnNvbmFycXViZS5p
+      bnRyYS5zdGVsbGFudGlzLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoC
+      ggEBAPEUzP1qgIBqSxpDvtsBGc5JAfRkMqbwDSA2AWqBMpS0tacEN1jwaDfaYdpc
+      elj3sKxMgj0YtnJwcmqcMxjsPqPyXV1KbP0wmMNMeaiUy1562vqXWgLEVcIRobim
+      pT2zo0G8HOCN/UlwMJtzm08APZVeWrj8iGFN0llONXzLGiA1brBUleO8TurxKD+j
+      o4uhiE9pmiKPiWKpI+X5JzYfQW5iVtTPeFkJBXUCNyGg33gR+S6CR0lUdG3d60Xk
+      5Zlk7JCqWUqTGiGp9l+G30xfjG6o8WUxHRuqs9wYTtUsINFs9wvNfQ3vObNW9kiS
+      m/WkN8Wj6k9ZYeaHCKCE+5xMTssCAwEAAaOCAs8wggLLMB0GA1UdDgQWBBTwU4h7
+      tepzJWa+OadbtdZebZZZITAfBgNVHSMEGDAWgBT8wZrfngo9ARh6TlcCHbhagqxp
+      NTCByQYDVR0gBIHBMIG+MIG7BgoqgXoBF84QAQEEMIGsMGEGCCsGAQUFBwICMFUw
+      GhYTUFNBIFBldWdlb3QgQ2l0cm9lbjADAgEEGjdQb2xpdGlxdWUgZGUgQ2VydGlm
+      aWNhdGlvbiBQU0EgUGV1Z2VvdCBDaXRyb2VuIFByb2dyYW1zMEcGCCsGAQUFBwIB
+      FjtodHRwOi8vaW5mb2NlcnQucHNhLXBldWdlb3QtY2l0cm9lbi5jb20vUENfUFNB
+      X1Byb2dyYW1zLnBkZjAdBgNVHSUEFjAUBggrBgEFBQcDAgYIKwYBBQUHAwEwDgYD
+      VR0PAQH/BAQDAgO4MIHMBgNVHREEgcQwgcGBD2luZGljZUBtcHNhLmNvbYI0c29u
+      YXJxdWJlLmJzbjAwMjc5OTAtcmYyaGVuM2EuZXUteHAuc3RsYS1hd3MucHJpdmF0
+      ZYI2Ki5zb25hcnF1YmUuYnNuMDAyNzk5MC1yZjJoZW4zYS5ldS14cC5zdGxhLWF3
+      cy5wcml2YXRlgiAqLnNvbmFycXViZS5pbnRyYS5zdGVsbGFudGlzLmNvbYIec29u
+      YXJxdWJlLmludHJhLnN0ZWxsYW50aXMuY29tMFkGA1UdHwRSMFAwTqBMoEqGSGh0
+      dHA6Ly9pbmZvY2VydC5wc2EtcGV1Z2VvdC1jaXRyb2VuLmNvbS9QU0FfUGV1Z2Vv
+      dF9DaXRyb2VuX1Byb2dyYW1zLmNybDBkBggrBgEFBQcBAQRYMFYwVAYIKwYBBQUH
+      MAKGSGh0dHA6Ly9pbmZvY2VydC5wc2EtcGV1Z2VvdC1jaXRyb2VuLmNvbS9QU0Ff
+      UGV1Z2VvdF9DaXRyb2VuX1Byb2dyYW1zLmNydDANBgkqhkiG9w0BAQsFAAOCAQEA
+      HVJPBJ1lC0sz1TSRHYzj+qlsJsFm3xGTQz0I5DxDT9xj/zx7ReX2ZiQeh72VpdSt
+      QyV9mSpal6G7dG4GMaVAEYe6oVZE4pqqpXsX9ljpcHELKEovVhKp2zhPLdKX9eEi
+      NsFXpkG5fPixt4MWsE1PkSlt7hKHPYDonGpqcI+a5pL482nD29xM2me2pdMPb2Cd
+      wICmOggF0fcggmHsescHevJE3O1g4n/q0XGDdWMlljb6pVIW1UE5Zr5mqo57sG7p
+      k1oL/vtYjNQnOtAoXHhN2oCPeAUNeodbWqlLMcbyTVxaTsKb8LMs5M2xYZ1h/BFC
+      kPnmKzYE265hfqe2cGS2uw==
+      -----END CERTIFICATE-----
+
+runs:
+  using: composite
+  steps:
+
+    - name: Validate input project_key parameter
+      shell: bash
+      run: |
+          echo "Checking project key: ${{ inputs.project_key  }}"
+          if [[ ! "${{ inputs.project_key }}" =~ ^(com|org)\.(fca|inetpsa|opel|psa|your-org|stla)\.[A-Za-z]{3}[0-9]{2}D?[:.].* ]]; then
+            echo "Invalid poroject_key format: ${{ inputs.project_key }}"
+            exit 1
+          fi
+          echo "Parameter is valid: ${{ inputs.project_key }}"
+    
+    - name: Get scan args
+      id: scan-args
+      shell: bash
+      run: |
+        ARGS="-Dsonar.projectKey=${{ inputs.project_key }} \
+              -Dsonar.verbose=${{ inputs.debug }} \
+              -Dsonar.sources=${{ inputs.sources }} \
+              -Dsonar.branch.name=${{ inputs.branch }}"
+        if [[ -n "${{ inputs.generic_coverage_report_paths }}" ]]; then
+          ARGS="$ARGS -Dsonar.coverageReportPaths=${{ inputs.generic_coverage_report_paths }}"
+        fi
+        if [[ -n "${{ inputs.python_coverage_report_paths }}" ]]; then
+          ARGS="$ARGS -Dsonar.python.coverage.reportPaths=${{ inputs.python_coverage_report_paths }}"
+        fi
+        if [[ -n "${{ inputs.tests }}" ]]; then
+          ARGS="$ARGS -Dsonar.tests=${{ inputs.tests }}"
+        fi
+        echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+
+    - name: Official SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v6
+      env:
+        SONAR_TOKEN: ${{ inputs.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ inputs.host_url }}
+        SONAR_ROOT_CERT:  ${{ inputs.sonar_root_cert }}
+      with:
+        args: ${{ steps.scan-args.outputs.args }}
+
+    - name: SonarQube Quality Gate check
+      if: ${{ inputs.quality_gate == 'true' }}
+      id: sonarqube-quality-gate
+      uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
+      env:
+        SONAR_TOKEN: ${{ inputs.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ inputs.host_url }}
+        SONAR_ROOT_CERT:  ${{ inputs.sonar_root_cert }}
+      with:
+        pollingTimeoutSec: 600
+   
+    - name: SonarQube summary
+      if: ${{ inputs.quality_gate == 'true' }}
+      shell: bash
+      env:
+        STATUS: ${{ steps.sonarqube-quality-gate.outputs.quality-gate-status }}
+        HOST:   ${{ inputs.host_url }}
+        PROJ:   ${{ inputs.project_key }}
+        BRANCH: ${{ inputs.branch }}
+      run: |
+        # remove all ".intra" occurrences from HOST
+        HOST="${HOST//.intra/}"
+
+        DASHBOARD_URL="${HOST%/}/dashboard?id=${PROJ}&branch=${BRANCH}"
+        {
+          echo "## 🧪 SonarQube Quality Gate"
+          echo ""
+          echo "- **Project:** \`${PROJ}\`"
+          echo "- **Branch:** \`${BRANCH}\`"
+          echo "- **Status:** **${STATUS:-UNKNOWN}**"
+          echo ""
+          echo "[Open in SonarQube](${DASHBOARD_URL})"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post results in PR
+      if: |
+        github.event_name == 'pull_request' &&
+        inputs.quality_gate == 'true' && inputs.GITHUB_TOKEN != ''
+      uses: actions/github-script@v7
+      env:
+        STATUS: ${{ steps.sonarqube-quality-gate.outputs.quality-gate-status }}
+        HOST:   ${{ inputs.host_url }}
+        PROJ:   ${{ inputs.project_key }}
+        BRANCH: ${{ inputs.branch }}
+      with:
+        github-token: ${{ inputs.GITHUB_TOKEN }}
+        script: |
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          // Clean HOST if it contains `.intra`
+          const rawHost = process.env.HOST || '';
+          const host = rawHost.replace('.intra', '');
+
+          const output = `### 🧪 SonarQube Quality Gate
+
+          - **Project:** \`${process.env.PROJ}\`
+          - **Branch:** \`${process.env.BRANCH}\`
+          - **Status:** **${process.env.STATUS || 'UNKNOWN'}**
+
+          [Open in SonarQube](${host}/dashboard?id=${process.env.PROJ}&branch=${process.env.BRANCH})`;
+
+          const botComment = comments.find(comment =>
+            comment.user.type === 'Bot' &&
+            comment.body.includes('SonarQube Quality Gate')
+          );
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: output
+            });
+          } else {
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+          }

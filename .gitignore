@@ -1,0 +1,233 @@
+# ====================================
+# Gitignore - Terraform Multi-Account
+# ====================================
+# This file excludes sensitive files, temporary files,
+# and build artifacts from version control.
+
+# ====================================
+# macOS
+# ====================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+Brewfile.lock.json
+**/.docker/**
+
+# ====================================
+# Windows
+# ====================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# ====================================
+# Python
+# ====================================
+__pycache__/
+*.py[cod]
+*$py.class
+**/*.egg-info/*
+build/
+*.so
+.python-version
+Pipfile.lock
+__pypackages__/
+
+# Python virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ====================================
+# Terraform
+# ====================================
+
+# Terraform state files
+# CRITICAL: Never commit state files - they contain sensitive data
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+errored.tfstate
+
+# Terraform plan files
+# These contain infrastructure details and should not be committed
+*.tfplan
+*.plan
+*.tfplan*
+terraformplanjson.json
+terraformshowoutput.txt
+
+# Terraform directories
+**/.terraform/*
+.terraform/
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Override files
+# These are used for local development and should not be committed
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform CLI configuration files
+.terraformrc
+terraform.rc
+
+# ====================================
+# Backend Configuration Files
+# ====================================
+# Backend config files are generated dynamically by workflows
+# They should not be committed as they contain environment-specific data
+
+# Backend configuration files (generated at runtime)
+*.tfbackend
+backend.tfbackend
+*.s3.tfbackend
+
+# Temporary backend files from bootstrap
+backend-local.tf
+create-backend.tfvars
+temp.tfvars
+
+# ====================================
+# Sensitive Files
+# ====================================
+# CRITICAL: These files may contain secrets or sensitive data
+
+# AWS credentials
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+.aws/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.local
+
+# Secrets files
+secrets.tf
+secrets.tfvars
+*.secret
+*.secrets
+
+# ====================================
+# IDE and Editor Files
+# ====================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (IntelliJ, PyCharm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ====================================
+# Logs and Temporary Files
+# ====================================
+
+# Log files
+*.log
+*.log.*
+logs/
+**/*.log
+
+# Temporary files
+tmp/
+temp/
+**/tmp/*
+.tmp/
+
+# Test coverage
+.coverage
+coverage.xml
+.coverage_data/
+
+# Build directories
+build/
+dist/
+
+# ====================================
+# Project Specific
+# ====================================
+
+# Old structure files (if migrating from workspace-based)
+config.dev.tfbackend
+config.prod.tfbackend
+isengard.tfvars
+**/json_data/dev
+**/.ou_script_tmp_*
+
+# Lambda build artifacts
+**/lambda_build/*
+
+# Plan directories (artifacts are managed by GitHub Actions)
+**/plan/*.tfplan
+
+# Testing
+int*.tfplan
+int*.tfvars
+config.int*.tfbackend
+
+# ====================================
+# GitHub Actions Artifacts
+# ====================================
+# These are managed by GitHub and should not be committed
+plan-metadata.json
+plan-summary.md
+
+# ====================================
+# Other
+# ====================================
+.cache/
+cache/
+node_modules/

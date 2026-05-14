@@ -1,0 +1,415 @@
+# ============================================================================
+# TERRAFORM DESTROY WORKFLOW
+# ============================================================================
+# This workflow DESTROYS (deletes) all infrastructure managed by Terraform
+# in the specified environment. This is a DESTRUCTIVE operation that cannot
+# be undone - all resources will be permanently deleted.
+#
+# ⚠️ DANGER: This is the most dangerous workflow in this repository!
+#
+# SAFETY FEATURES:
+# - Manual trigger only (cannot run automatically)
+# - Requires environment-specific confirmation (DESTROY-DEV or DESTROY-PROD)
+# - Production requires additional manual approval
+# - Verifies AWS account before destroying
+# - Does NOT delete backend (state storage) by default
+#
+# WHEN IT RUNS:
+# - ONLY when manually triggered from GitHub Actions UI
+# - NEVER runs automatically (for safety)
+#
+# WHAT IT DOES:
+# 1. Validates that user typed correct confirmation string
+# 2. Authenticates to the AWS account
+# 3. Initializes Terraform with existing state
+# 4. Destroys ALL infrastructure defined in Terraform
+# 5. Reports success or failure
+#
+# WHAT IT DOES NOT DO:
+# - Does NOT destroy the Terraform backend (S3 bucket and backend KMS key)
+# - Does NOT destroy resources not managed by Terraform
+# - Does NOT create backups (make your own if needed)
+#
+# USE CASES:
+# - Tearing down a temporary development environment
+# - Cleaning up after testing
+# - Decommissioning an environment completely
+# ============================================================================
+
+name: Terraform Destroy
+
+# ============================================================================
+# WORKFLOW TRIGGERS (WHEN THIS WORKFLOW RUNS)
+# ============================================================================
+on:
+  # MANUAL TRIGGER ONLY
+  # This workflow can ONLY be triggered manually from GitHub UI
+  # This is a critical safety feature - we never want infrastructure
+  # destruction to happen automatically
+  workflow_dispatch:
+    inputs:
+      # INPUT 1: Which environment to destroy
+      environment:
+        description: 'Environment to destroy (dev or prod)'  # Help text shown in UI
+        required: true                                        # User MUST provide this
+        type: choice                                          # Dropdown selection
+        options:
+          - dev      # Option 1: Development environment
+          - prod     # Option 2: Production environment
+      
+      # INPUT 2: Confirmation string - user must type environment-specific text
+      # DEV requires: "DESTROY-DEV"
+      # PROD requires: "DESTROY-PROD"
+      # This prevents accidental destruction and ensures user knows which environment
+      # they're destroying
+      confirmation:
+        description: 'Type DESTROY-DEV or DESTROY-PROD to confirm'  # Help text
+        required: true                                               # MUST provide this
+        type: string                                                 # Free text input
+
+# ============================================================================
+# PERMISSIONS
+# ============================================================================
+# These define what this workflow is allowed to do in GitHub and AWS
+permissions:
+  id-token: write   # Required to authenticate with AWS using OIDC (secure, no stored passwords)
+  contents: read    # Allows reading the repository code
+
+# ============================================================================
+# JOBS
+# ============================================================================
+# This workflow has 2 jobs that run sequentially
+
+jobs:
+  # ==========================================================================
+  # JOB 1: VALIDATE CONFIRMATION
+  # ==========================================================================
+  # This job checks that the user typed the correct confirmation string
+  # It's a safety gate to prevent accidental infrastructure destruction
+  
+  validate:
+    # Human-readable name shown in GitHub Actions UI
+    name: Validate Confirmation
+    
+    # Run on Your Organization self-hosted Linux runner (not GitHub's public runners)
+    runs-on: ubuntu-latest
+    
+    # OUTPUTS: Variables that this job exports for other jobs to use
+    outputs:
+      aws_role: ${{ steps.set-config.outputs.aws_role }}        # AWS IAM role to assume
+      working_dir: ${{ steps.set-config.outputs.working_dir }}  # Terraform directory path
+    
+    steps:
+      # ------------------------------------------------------------------------
+      # STEP: Validate that user typed the correct confirmation string
+      # ------------------------------------------------------------------------
+      - name: Check Confirmation
+        run: |
+          # BUILD EXPECTED CONFIRMATION STRING
+          # For dev: expects "DESTROY-DEV"
+          # For prod: expects "DESTROY-PROD"
+          EXPECTED="DESTROY-${{ inputs.environment }}"
+          
+          # Convert to uppercase to handle case variations
+          # tr '[:lower:]' '[:upper:]' converts all lowercase to uppercase
+          EXPECTED_UPPER=$(echo "$EXPECTED" | tr '[:lower:]' '[:upper:]')
+          
+          # CHECK IF USER INPUT MATCHES EXPECTED STRING
+          # This is case-sensitive after conversion - must be exact
+          if [ "${{ inputs.confirmation }}" != "$EXPECTED_UPPER" ]; then
+            echo "❌ ERROR: You must type $EXPECTED_UPPER to confirm"
+            echo "You typed: ${{ inputs.confirmation }}"
+            echo ""
+            echo "This safety check prevents accidental infrastructure destruction."
+            echo "Please re-run the workflow and type the exact confirmation string."
+            exit 1  # Exit with error = stop the entire workflow
+          fi
+          
+          # If we reach here, confirmation is correct
+          echo "✅ Confirmation validated"
+          echo "Proceeding with destruction of ${{ inputs.environment }} environment..."
+      
+      # ------------------------------------------------------------------------
+      # STEP: Set configuration based on environment
+      # ------------------------------------------------------------------------
+      - name: Set Environment Configuration
+        # Give this step an ID so other steps/jobs can reference its outputs
+        id: set-config
+        run: |
+          # Store the environment input in a variable for easier use
+          ENV="${{ inputs.environment }}"
+          
+          # CONDITIONAL: Set different AWS roles and directories based on environment
+          if [ "$ENV" == "dev" ]; then
+            # DEV ENVIRONMENT CONFIGURATION
+            # Use repository variable for dev AWS role ARN
+            # ${{ vars.DEV_DEPLOY_AWS_ROLE_TO_ASSUME }} is set in GitHub repo settings
+            echo "aws_role=${{ vars.DEV_DEPLOY_AWS_ROLE_TO_ASSUME }}" >> $GITHUB_OUTPUT
+            
+            # Set working directory to dev environment folder
+            echo "working_dir=infrastructure/environments/dev" >> $GITHUB_OUTPUT
+          else
+            # PROD ENVIRONMENT CONFIGURATION
+            # Use repository variable for prod AWS role ARN
+            echo "aws_role=${{ vars.PROD_DEPLOY_AWS_ROLE_TO_ASSUME }}" >> $GITHUB_OUTPUT
+            
+            # Set working directory to prod environment folder
+            echo "working_dir=infrastructure/environments/prod" >> $GITHUB_OUTPUT
+          fi
+  
+  # ==========================================================================
+  # JOB 2: DESTROY INFRASTRUCTURE
+  # ==========================================================================
+  # This job performs the actual infrastructure destruction
+  
+  destroy:
+    # Dynamic name that includes the environment (e.g., "Destroy dev Infrastructure")
+    name: Destroy ${{ inputs.environment }} Infrastructure
+    
+    # Run on Your Organization self-hosted Linux runner
+    runs-on: ubuntu-latest
+    
+    # DEPENDENCY: Wait for 'validate' job to complete successfully first
+    # This ensures confirmation is validated before we start destroying anything
+    needs: validate
+    
+    # CONDITIONAL ENVIRONMENT: For PROD, require manual approval before running
+    # The 'production' environment should be configured in GitHub with protection rules
+    # This adds an extra safety layer - even with correct confirmation, a human
+    # must click "Approve" before production infrastructure is destroyed
+    # For DEV, this evaluates to empty string (no approval needed)
+    environment: ${{ inputs.environment == 'prod' && 'production' || '' }}
+    
+    # ENVIRONMENT VARIABLES: Available to all steps in this job
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}                      # 'dev' or 'prod'
+      AWS_REGION: eu-west-1                                       # AWS region for all resources
+      FEATURE_NAME: blueprint-demo                                 # Prefix for naming resources
+      WORKING_DIR: ${{ needs.validate.outputs.working_dir }}      # Terraform directory from validate job
+    
+    steps:
+      # ======================================================================
+      # SETUP SECTION: Install and configure all necessary tools
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Download the repository code
+      # ------------------------------------------------------------------------
+      - name: Checkout Repository
+        # This is a pre-built action from GitHub
+        # It clones your repository code to the runner machine
+        # We need the Terraform configuration files to know what to destroy
+        uses: actions/checkout@v4  # @v4 is the version of this action
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install Node.js (JavaScript runtime)
+      # ------------------------------------------------------------------------
+      - name: Setup Node.js
+        # Node.js is needed for some GitHub Actions
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'  # Install version 18.x of Node.js
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install Terraform CLI tool
+      # ------------------------------------------------------------------------
+      - name: Setup Terraform
+        # This action installs the Terraform command-line tool
+        # Must use same version as other workflows for consistency
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.12.2  # Required for S3 native state locking
+      
+      # ------------------------------------------------------------------------
+      # STEP: Install AWS CLI tool
+      # ------------------------------------------------------------------------
+      - name: Setup AWS CLI
+        run: |
+          # Download AWS CLI v2 installer for Linux (64-bit)
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          
+          # Extract the zip file (-q = quiet mode, no verbose output)
+          unzip -q awscliv2.zip
+          
+          # Run the installer (sudo = run as administrator)
+          sudo ./aws/install
+          
+          # Verify installation by showing version
+          aws --version
+
+      # ------------------------------------------------------------------------
+      # STEP: Configure SSH access for private Terraform module repository
+      # ------------------------------------------------------------------------
+      - name: Setup SSH for Private Module Access
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${{ secrets.TERRAFORM_MODULES_SECRET_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+      
+      # ======================================================================
+      # AWS AUTHENTICATION SECTION: Login to AWS account
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Authenticate to AWS using OIDC (secure method, no stored passwords)
+      # ------------------------------------------------------------------------
+      - name: Configure AWS Credentials
+        # This action uses OpenID Connect to assume an AWS IAM role
+        # It's more secure than storing AWS access keys as secrets
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # The AWS IAM role to assume (from validate job output)
+          role-to-assume: ${{ needs.validate.outputs.aws_role }}
+          
+          # Unique name for this session (helps with AWS CloudTrail logging)
+          # Format: github-destroy-{env}-{unique-run-id}
+          # The "destroy" prefix in the session name makes it clear in AWS logs
+          # that this session is performing destructive operations
+          role-session-name: github-destroy-${{ env.ENVIRONMENT }}-${{ github.run_id }}
+          
+          # AWS region to use for API calls
+          aws-region: ${{ env.AWS_REGION }}
+          
+          # How long the credentials are valid (3600 seconds = 1 hour)
+          # Should be enough time to complete the destroy operation
+          role-duration-seconds: 3600
+      
+      # ------------------------------------------------------------------------
+      # STEP: Verify we're logged into the correct AWS account
+      # ------------------------------------------------------------------------
+      - name: Verify AWS Account
+        run: |
+          # Get the AWS account ID we're currently authenticated to
+          # 'sts get-caller-identity' returns info about current AWS credentials
+          CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          
+          # Display account information with clear warning
+          # This is a CRITICAL verification step - ensures we're destroying
+          # infrastructure in the correct AWS account
+          echo "=========================================="
+          echo "Authenticated to AWS Account: $CURRENT_ACCOUNT"
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "⚠️ About to destroy ${{ env.ENVIRONMENT }} infrastructure"
+          echo "=========================================="
+      
+      # ======================================================================
+      # TERRAFORM DESTROY SECTION: Delete all infrastructure
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Initialize Terraform with remote backend
+      # ------------------------------------------------------------------------
+      - name: Terraform Init
+        # Run commands in the Terraform working directory
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          # Get AWS account ID for building backend bucket name
+          CURRENT_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          
+          # Build backend S3 bucket name (same as other workflows)
+          # Format: {feature-name}-terraform-backend-{region}-{account-id}
+          BUCKET_NAME="${FEATURE_NAME}-terraform-backend-${AWS_REGION}-${CURRENT_ACCOUNT_ID}"
+          
+          # CREATE BACKEND CONFIGURATION FILE
+          # This tells Terraform where to find its state file
+          # The state file contains a record of all existing infrastructure
+          # We need this to know what to destroy
+          # 'cat > file << EOF' is a "here document" - writes multi-line text to file
+          cat > backend.tfbackend << BACKEND_CONFIG_EOF
+          bucket         = "${BUCKET_NAME}"                    # S3 bucket name
+          key            = "terraform.tfstate"                 # Object key (filename in S3)
+          region         = "${AWS_REGION}"                     # AWS region
+          encrypt        = true                                # Enable encryption at rest
+          use_lockfile   = true                                # Native S3 lockfile for state locking
+          BACKEND_CONFIG_EOF
+          
+          # INITIALIZE TERRAFORM
+          # This downloads provider plugins and loads the state file
+          # -backend-config: load backend settings from our file
+          # -input=false: don't prompt for input (fail if something is missing)
+          terraform init -backend-config=backend.tfbackend -input=false
+          
+          # CLEANUP: Remove backend config file (contains sensitive info)
+          rm -f backend.tfbackend
+      
+      # ------------------------------------------------------------------------
+      # STEP: Destroy all infrastructure (ACTUALLY DELETE RESOURCES)
+      # ------------------------------------------------------------------------
+      - name: Terraform Destroy
+        # Run commands in the Terraform working directory
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          echo "=========================================="
+          echo "Destroying ${{ env.ENVIRONMENT }} Infrastructure"
+          echo "=========================================="
+          
+          # DESTROY ALL INFRASTRUCTURE
+          # This command deletes all AWS resources managed by Terraform
+          # -auto-approve: don't ask for confirmation (we already validated above)
+          # -input=false: don't prompt for input
+          # -var-file: load variables from terraform.tfvars file
+          #
+          # ⚠️ CRITICAL: This is the point of no return - resources will be DELETED
+          # Terraform will:
+          # 1. Read the state file to see what exists
+          # 2. Destroy resources in reverse dependency order
+          # 3. Update the state file to reflect deletions
+          terraform destroy -auto-approve -input=false -var-file=terraform.tfvars
+          
+          echo "✅ Infrastructure destroyed"
+      
+      # ======================================================================
+      # SUMMARY SECTION: Report the destruction result
+      # ======================================================================
+      
+      # ------------------------------------------------------------------------
+      # STEP: Display destruction summary
+      # ------------------------------------------------------------------------
+      - name: Destruction Summary
+        # CONDITIONAL: Run this step always, even if previous steps failed
+        # 'always()' means run regardless of success/failure
+        # This ensures we always get a summary, even for failed destructions
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "${{ env.ENVIRONMENT }} Destruction Summary"
+          echo "=========================================="
+          
+          # ${{ job.status }} contains the current job status
+          # Possible values: 'success', 'failure', 'cancelled'
+          echo "Status: ${{ job.status }}"
+          
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          
+          # ${{ github.actor }} is the GitHub username who triggered this workflow
+          echo "Destroyed by: ${{ github.actor }}"
+          
+          # Display current UTC timestamp
+          echo "Destroyed at: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          
+          echo ""
+          
+          # IMPORTANT NOTE ABOUT BACKEND
+          # The backend (S3 bucket and backend KMS key) is NOT destroyed
+          # This is intentional for several reasons:
+          # 1. Prevents accidental loss of Terraform state history
+          # 2. Allows re-creating infrastructure without backend setup
+          # 3. Backend destruction should be a separate, deliberate action
+          echo "⚠️ NOTE: Backend resources were NOT destroyed"
+          echo "To remove backend, delete the S3 bucket and backend KMS key manually"
+          echo ""
+          echo "Backend resources to clean up if needed:"
+          echo "- S3 Bucket: ${FEATURE_NAME}-terraform-backend-${AWS_REGION}-<account-id>"
+          echo "- S3 Lockfile Object: terraform.tfstate.tflock (only if a stale lock remains)"
+          echo "- KMS Key Alias: alias/${FEATURE_NAME}-terraform-state-kms"
+          echo "=========================================="

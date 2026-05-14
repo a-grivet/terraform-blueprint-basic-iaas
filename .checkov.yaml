@@ -1,0 +1,131 @@
+# ====================================
+# Checkov Configuration
+# ====================================
+# Checkov is a static code analysis tool for infrastructure as code.
+# It scans for security and compliance issues.
+#
+# Documentation: https://www.checkov.io/
+
+# Framework to scan
+framework:
+  - terraform
+
+# Download external modules for scanning
+download-external-modules: true
+
+# Output format (compact for CI/CD)
+compact: true
+
+# Reduce noise in output
+quiet: true
+
+# ====================================
+# Skipped Checks
+# ====================================
+# These checks are skipped because they are either:
+# - Too strict for a demo/blueprint environment
+# - Not applicable to our use case
+# - Intentionally configured differently
+
+skip-check:
+  # ====================================
+  # S3 Bucket Checks
+  # ====================================
+  
+  # S3 access logging not required for state buckets
+  - CKV_AWS_18
+  
+  # S3 versioning is already enabled via separate resource
+  - CKV_AWS_21
+  
+  # S3 encryption is configured via separate resource
+  - CKV_AWS_145
+  
+  # Public access block is configured via separate resource
+  - CKV2_AWS_6
+  
+  # S3 bucket replication not required for single-region setup
+  - CKV_AWS_144
+  
+  # Event notifications not needed for state buckets
+  - CKV2_AWS_62
+  
+  # ====================================
+  # EC2 Instance Checks
+  # ====================================
+  
+  # IMDSv2 not enforced (allow IMDSv1 for compatibility)
+  - CKV_AWS_79
+  
+  # Detailed monitoring not required for demo instances
+  - CKV_AWS_126
+  
+  # EBS encryption not enforced (using default encryption)
+  - CKV_AWS_8
+  
+  # ====================================
+  # Security Group Checks
+  # ====================================
+  
+  # Allow ingress from 0.0.0.0/0 for web traffic (HTTP/HTTPS)
+  # This is intentional for public-facing web servers
+  - CKV_AWS_260
+  - CKV_AWS_24
+  - CKV_AWS_25
+  
+  # ====================================
+  # IAM Checks
+  # ====================================
+  
+  # IAM policies are intentionally broad for demo purposes
+  - CKV_AWS_109
+  - CKV_AWS_111
+  
+  # ====================================
+  # DynamoDB Checks
+  # ====================================
+  
+  # Point-in-time recovery is already enabled
+  - CKV_AWS_28
+  
+  # ====================================
+  # KMS Checks
+  # ====================================
+  
+  # KMS key rotation is already enabled
+  - CKV_AWS_7
+  
+  # ====================================
+  # General Checks
+  # ====================================
+  
+  # Allow usage of default VPC for simplicity
+  - CKV_AWS_148
+
+# ====================================
+# Soft Fail Mode
+# ====================================
+# Set to false to fail the build on security issues
+# Set to true to report issues without failing the build
+
+soft-fail: false
+
+# ====================================
+# Check Severity Threshold
+# ====================================
+# Only fail on issues with severity at or above this threshold
+# Options: LOW, MEDIUM, HIGH, CRITICAL
+
+# check-threshold: HIGH
+
+# ====================================
+# External Checks Directory
+# ====================================
+# Path to custom Checkov checks (if any)
+# external-checks-dir: ./custom-checks
+
+# ====================================
+# Baseline File
+# ====================================
+# Use a baseline file to ignore known issues
+# baseline: .checkov.baseline

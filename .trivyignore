@@ -1,0 +1,77 @@
+# ====================================
+# Trivy Ignore Configuration
+# ====================================
+# This file tells Trivy which vulnerabilities or checks to ignore.
+# Use this for false positives or known acceptable risks.
+#
+# Format: One vulnerability/check ID per line
+# Comments start with #
+
+# ====================================
+# Ignore All Google Cloud Checks
+# ====================================
+# We are using AWS only, so ignore all GCP-specific checks
+
+AVD-GCP-*
+
+# ====================================
+# Ignore All Azure Checks
+# ====================================
+# We are using AWS only, so ignore all Azure-specific checks
+
+AVD-AZU-*
+
+# ====================================
+# Ignore Cache Directories
+# ====================================
+# Cache and temporary directories should not be scanned
+
+**/.cache/**
+**/cache/**
+**/.terraform/**
+**/node_modules/**
+
+# ====================================
+# Acceptable AWS Risks for Demo
+# ====================================
+# These are intentionally configured this way for the demo/blueprint
+
+# Public ingress for web traffic (HTTP/HTTPS) is intentional
+AVD-AWS-0107
+
+# IMDSv1 allowed for compatibility
+AVD-AWS-0028
+
+# S3 bucket without access logging (state buckets don't need it)
+AVD-AWS-0089
+
+# ====================================
+# False Positives
+# ====================================
+# Known false positives from Trivy scanner
+
+# Terraform state files are not in the repository
+# This check triggers on .gitignore entries
+AVD-GIT-0001
+AVD-GIT-0002
+
+# ====================================
+# Low Severity Findings
+# ====================================
+# Optional: Uncomment to ignore low severity findings
+# LOW
+
+# ====================================
+# Specific CVEs
+# ====================================
+# Add specific CVE IDs here if you need to ignore them temporarily
+# Example:
+# CVE-2021-12345
+
+# ====================================
+# Expiration Dates
+# ====================================
+# You can add expiration dates to ignored items
+# Format: ID exp:YYYY-MM-DD
+# Example:
+# CVE-2021-12345 exp:2024-12-31

@@ -1,0 +1,104 @@
+name: Checkmarx Scan
+description: "Composite action for Checkmarx One scan"
+
+inputs:
+  CX_CLIENT_ID:
+    description: "Checkmarx client id to access the specific space and project"
+    required: true
+
+  CX_CLIENT_SECRET:
+    description: "Checkmarx client password"
+    required: true
+
+  project_name:
+    description: "Project name in checkmarx, will create a new project if not existed."
+    required: true
+
+  cx_tenant:
+    description: "Tenent name in checkmarx"
+    default: 'your-org-cxone'
+    required: false
+
+  base_uri:
+    description: "The checkmarx URL"
+    default: 'https://eu.ast.checkmarx.net'
+    required: false
+
+  threshold_fail:
+    description: "Controls if thresholds are enabled"
+    default: "true"
+    required: true
+
+  use_github_as:
+    description: "Should action use github advanced security"
+    default: "false"
+    required: true
+
+  container_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+  iac_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+  sast_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+  sca_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+  scs_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+  apis_critical_th:
+    description: ""
+    default: '1'
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        if [ "${{ github.event.inputs.threshold_fail }}" == 'true' ]; then
+          THRESHOLD_INPUTS="containers-critical=${{ inputs.container_critical_th }};
+              iac-critical=${{ inputs.iac_critical_th }};
+              sast-critical=${{ inputs.sast_critical_th }};
+              sca-critical=${{ inputs.sca_critical_th }};
+              scs-critical=${{ inputs.scs_critical_th }};
+              apis-critical=${{ inputs.apis_critical_th }}"
+          THRESHOLD_OPTIONS=$(echo "$THRESHOLD_INPUTS" | tr -d '[:space:]')
+          echo "threshold options is : '$THRESHOLD_OPTIONS'"
+          echo "THRESHOLD_OPTIONS=$THRESHOLD_OPTIONS" >> $GITHUB_ENV
+        else
+          echo "threshold fail is disabled"
+          echo "THRESHOLD_OPTIONS=''" >> $GITHUB_ENV
+        fi
+
+    - name: Checkmarx One CLI Action
+      uses: checkmarx/ast-github-action@main
+      with:
+        project_name: ${{ inputs.project_name }}
+        cx_tenant: ${{ inputs.cx_tenant }}
+        base_uri: ${{ inputs.base_uri }}
+        cx_client_id: ${{ inputs.CX_CLIENT_ID }}
+        cx_client_secret: ${{ inputs.CX_CLIENT_SECRET }}
+        additional_params: >
+            --threshold "$THRESHOLD_OPTIONS"
+            ${{ inputs.use_github_as == 'true' && '--report-format sarif --output-path .' || '' }}
+
+    - name: Upload SARIF file
+      if: ${{ inputs.use_github_as == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        # Path to SARIF file relative to the root of the repository
+        sarif_file: cx_result.sarif

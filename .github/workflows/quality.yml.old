@@ -1,0 +1,182 @@
+name: Quality Gates (On Push)
+
+on:
+  push:
+    branches: [ "main" ]  # Trigger when code is pushed to the main branch
+  pull_request:
+    branches: [ "main" ]  # Trigger on PRs targeting the main branch
+  workflow_dispatch: {}   # Manual trigger from GitHub UI
+
+permissions:
+  contents: read  # Required for repository checkout
+
+jobs:
+  quality:
+    name: Code Quality Checks
+    runs-on: linux-s-x86  # Runner Stellantis
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4 # Clone the repo content
+
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # Needed by some tools
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5  # Enforce a consistent Terraform version across checks
+
+
+      # ==========================================
+      # Terraform fmt
+      # ==========================================
+      - name: Terraform Format Check
+        run: |
+          echo "Checking Terraform formatting..."
+          terraform fmt -check -recursive || {
+            echo "❌ Terraform formatting issues found!"
+            echo "Run 'terraform fmt -recursive' to fix"
+            exit 1
+          }
+        # Validates that all Terraform files are properly formatted
+
+      # ==========================================
+      # Terraform validate
+      # ==========================================
+      - name: Terraform Validate
+        run: |
+          echo "Validating Terraform configuration..."
+          
+          # Dynamically find all directories with .tf files
+          DIRS=$(find . -name "*.tf" -exec dirname {} \; | sort -u | grep -v ".terraform")
+          
+          for dir in $DIRS; do
+            echo "Validating $dir..."
+            cd "$dir"
+            terraform init -backend=false -upgrade
+            terraform validate
+            cd - > /dev/null
+          done
+        # Performs validation on all Terraform directories without touching remote backend
+
+      # ==========================================
+      # TFLint
+      # ==========================================
+      - name: Install TFLint
+        run: |
+          echo "Installing TFLint..."
+          TFLINT_VERSION="v0.53.0"
+          curl -fsSL -o /tmp/tflint.zip \
+            "https://github.com/terraform-linters/tflint/releases/download/${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          sudo unzip -o /tmp/tflint.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/tflint
+          tflint --version
+        # Downloads and installs a pinned version of TFLint
+
+      - name: Run TFLint
+        run: |
+          echo "Running TFLint..."
+          # Init TFLint plugins
+          tflint --init || true
+          # Run recursively
+          tflint --recursive --format compact || {
+            echo "❌ TFLint found issues!"
+            exit 1
+          }
+        # Lints Terraform code with plugin support and fails on warnings
+
+      # ==========================================
+      # Checkov
+      # ==========================================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'  # Required for Checkov
+
+      - name: Install Checkov
+        run: |
+          echo "Installing Checkov..."
+          python3 -m pip install --upgrade pip
+          python3 -m pip install checkov
+        # Installs Checkov for security scanning
+
+
+      - name: Run Checkov
+        run: |
+          echo "Running Checkov security scan..."
+          checkov -d . \
+            --framework terraform \
+            --quiet \
+            --compact \
+            --soft-fail || {
+            echo "⚠️  Checkov found security issues"
+            exit 1
+          }
+        # Runs a security scan on all Terraform code
+
+
+      # ==========================================
+      # Trivy
+      # ==========================================
+      - name: Install Trivy
+        run: |
+          echo "Installing Trivy..."
+          TRIVY_VERSION="0.58.1"
+          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz -o trivy.tar.gz
+          tar zxf trivy.tar.gz
+          sudo mv trivy /usr/local/bin/
+          sudo chmod +x /usr/local/bin/trivy
+          trivy --version
+        # Installs a pinned version of Trivy to scan for secrets
+
+      - name: Run Trivy (secrets only)
+        run: |
+          echo "Cleaning Trivy cache..."
+          rm -rf ~/.cache/trivy /home/runner/.cache/trivy || true
+
+          echo "Scanning repo for hard-coded secrets with Trivy..."
+          trivy fs \
+            --scanners secret \
+            --format table \
+            --ignorefile .trivyignore \
+            --skip-dirs .terraform --skip-dirs node_modules \
+            --exit-code 0 \
+            .
+        # Looks for secrets (passwords, tokens, etc.) in the repository
+
+      # ==========================================
+      # ShellCheck
+      # ==========================================
+      - name: Install ShellCheck
+        run: |
+          echo "Installing ShellCheck..."
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version
+        # Installs ShellCheck to lint shell scripts
+
+      - name: Run ShellCheck
+        run: |
+          echo "Running ShellCheck on shell scripts..."
+          
+          SCRIPTS=$(find . -name "*.sh" -not -path "*/.terraform/*" -not -path "*/node_modules/*")
+          
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found"
+            exit 0
+          fi
+          
+          for script in $SCRIPTS; do
+            echo "Checking $script..."
+            shellcheck -e SC2034 "$script" || {
+              echo "❌ ShellCheck found issues in $script"
+              exit 1
+            }
+          done
+          
+          echo "✅ All shell scripts passed ShellCheck"
+        # Analyse all shell scripts in the repo
